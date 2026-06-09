@@ -2,9 +2,11 @@
 # plc-mux.pl - UDP-driven selector for the EdgeRouter X IDEC PLC multiplexer.
 #
 # Listens for a selector (1-4) and repoints the virtual 192.168.1.160 at the
-# matching PLC port by rewriting a single policy-routing rule. A repeat of the
-# already-active selection is a true no-op (no rule churn, no session drop), so
-# an HMI that resends the current selection as a heartbeat won't glitch the link.
+# matching PLC port by rewriting a single policy-routing rule. A selector of 0
+# (the IDEC HMI's power-on default) maps to PLC #1 so the HMI's initial TCP link
+# comes up instead of being rejected. A repeat of the already-active selection is
+# a true no-op (no rule churn, no session drop), so an HMI that resends the
+# current selection as a heartbeat won't glitch the link.
 #
 # Pure-core Perl, no CPAN. See README.md for the full design.
 use strict;
@@ -41,10 +43,20 @@ while (1) {
     my ($pport, $pip) = sockaddr_in($paddr);
     my $from = inet_ntoa($pip);
 
-    # Accept an ASCII digit ("2", "2\n", ...) or a raw byte (0x02).
-    my $n;
-    if    ($data =~ /([1-9])/)  { $n = $1 + 0; }
-    elsif (length $data)        { $n = ord substr($data, 0, 1); }
+    # Accept an ASCII digit ("2", "2\n", ...) or a raw byte (0x02). $sel is the
+    # value as received; $n is what we act on.
+    my $sel;
+    if    ($data =~ /([0-9])/)  { $sel = $1 + 0; }
+    elsif (length $data)        { $sel = ord substr($data, 0, 1); }
+
+    # The IDEC HMI emits 0 (ASCII '0') as its power-on default while it brings up
+    # the TCP link to .160, before the operator picks a unit. Map 0 -> PLC #1 so
+    # that link comes up (and stale .160 flows get flushed) instead of being
+    # rejected, which left the HMI giving up before a unit could be selected.
+    # Safe only because the HMI heartbeats its *selected* unit (1-4), not 0, once
+    # the operator has chosen one; if it ever re-sent 0 mid-session it would snap
+    # the selection back to PLC #1.
+    my $n = (defined $sel && $sel == 0) ? 1 : $sel;
 
     unless (defined $n && $n >= 1 && $n <= $NUM_PLC) {
         logmsg("ignored bad selector from $from");
@@ -52,15 +64,18 @@ while (1) {
         next;
     }
 
+    # Log the raw selector so a wire-0 default is distinguishable from a real 1.
+    my $how = ($sel == $n) ? "selector $n" : "selector $sel (default -> PLC #$n)";
+
     if (defined $active && $n == $active) {
-        logmsg("selector $n from $from (already active, no-op)");
+        logmsg("$how from $from (already active, no-op)");
         $sock->send("ok $n", 0, $paddr) if $ACK;
         next;
     }
 
     select_plc($n);
     $active = $n;
-    logmsg("selector $n from $from -> table " . ($BASE_TBL + $n - 1) . " (PLC #$n)");
+    logmsg("$how from $from -> table " . ($BASE_TBL + $n - 1) . " (PLC #$n)");
     $sock->send("ok $n", 0, $paddr) if $ACK;
 }
 

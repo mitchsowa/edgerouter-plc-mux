@@ -126,6 +126,13 @@ datagram to port `5150` with payload `1`-`4`:
 The daemon replies `ok N` (or `err`). Resending the current selection is a no-op:
 no rule change, no session drop — safe to use as a heartbeat.
 
+A selector of `0` (ASCII `'0'` or raw `0x00`) maps to **PLC #1**. This is for HMIs
+(the commissioned IDEC unit among them) that emit `0` as a power-on default while
+bringing up their TCP link to `.160`, before the operator picks a unit: rather than
+reject it and leave the HMI unable to connect, the daemon brings up PLC #1 so the link
+establishes and the operator can then select `1`-`4`. This is safe only because the HMI
+heartbeats its *selected* unit (`1`-`4`) once chosen, never `0`.
+
 ## Troubleshooting
 
 - **`eth0` shows `192.168.1.160` as a secondary** — fatal. The kernel `local` table
@@ -144,8 +151,8 @@ no rule change, no session drop — safe to use as a heartbeat.
   `LOCAL` policy is dropping them, allow `udp/5150`. (On EdgeOS, `sudo timeout` is
   unavailable — bound a capture with tcpdump's `-c N`, not `timeout`.)
 - **Log says `ignored bad selector`** — the datagram arrives but the payload is out of
-  range. The daemon wants ASCII `1`-`4` or raw `0x01`-`0x04`. A common cause is an HMI
-  using 0-based indexing (sending `0` for the first PLC); make it send `1`-`4`.
+  range. The daemon accepts ASCII `0`-`4` or raw `0x00`-`0x04` (`0` → PLC #1); anything
+  else (e.g. `5`-`9`, or a non-digit) is rejected. Point the HMI at a valid selector.
 - **Switch works but HMI clings to the old PLC** — `conntrack` userspace tool
   missing, so old flows aren't torn down. `which conntrack`.
 - **Everything gone after reboot** — a file landed outside `/config`. All three

@@ -79,9 +79,14 @@ with `-c N`, never `sudo timeout`.
   and PLC #1 (the default selection) silently black-holes. `delete` eth1's `address`
   and `firewall` in the EdgeOS config. `eth2`-`eth4` are bare by default, so only
   eth1 is affected — the bug looks like "only PLC #1 is broken."
-- The HMI must send a **1-based** selector (`1`-`4`). A commissioned IDEC HMI was seen
-  sending ASCII `0` (0-based, `0x30`) for PLC #1 → `ignored bad selector`. The daemon
-  is 1-based by contract (`1`-`4` / `0x01`-`0x04`); fix the HMI, not the daemon.
+- The selector contract is **1-based** (`1`-`4` = PLC #1-4), with `0` as a special case
+  that maps to PLC #1. Two distinct HMI behaviors drove this: (a) the *button* once sent
+  0-based values for every selection (e.g. `0` for PLC #1) — that was fixed on the HMI
+  to send `1`-`4`, NOT in the daemon; (b) separately, the IDEC HMI emits a `0` as its
+  *power-on default* while bringing up its TCP link, which can't be changed on the HMI —
+  so the daemon maps `0` → PLC #1 (see `plc-mux.pl`) so the initial connection comes up
+  and the operator can then select a unit. Safe only because the HMI heartbeats its
+  *selected* unit (`1`-`4`) once chosen, never `0`.
 - The deployed copy under `/config/user-data/plc-mux/` can lag the repo (it was once
   a pre-no-op-guard daemon while the repo had the guarded version). Re-run
   `install.sh` after editing so the box never drifts from `src/`.
