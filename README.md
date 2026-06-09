@@ -73,8 +73,24 @@ cd edgerouter-plc-mux
 sudo ./install.sh
 ```
 
-Then run the one-time EdgeOS config it prints (sets `eth0` to `.254/24` and enables
-proxy ARP — leave `eth1`-`eth4` with no address) and bring it up with the launcher.
+Then apply the one-time EdgeOS config and bring it up with the launcher. `eth0` gets
+`.254/24` + proxy ARP; `eth1`-`eth4` must carry **no** EdgeOS address (the script owns
+their addressing). On a factory EdgeRouter X, `eth1` ships as the WAN port — it has
+`address dhcp` plus the `WAN_IN`/`WAN_LOCAL` firewall. That **must** be cleared, or the
+EdgeOS DHCP client keeps wiping the host address the script puts on `eth1`, leaving
+table 100 empty so PLC #1 (the default) silently black-holes. `eth2`-`eth4` are bare by
+default and need nothing.
+
+```sh
+configure
+set interfaces ethernet eth0 address 192.168.1.254/24
+set interfaces ethernet eth0 ip enable-proxy-arp
+delete interfaces ethernet eth1 address          # drop the factory WAN dhcp
+delete interfaces ethernet eth1 firewall         # drop WAN_IN / WAN_LOCAL
+commit ; save ; exit
+sudo /config/scripts/post-config.d/90-plc-mux.sh
+```
+
 Everything lives under `/config`, which survives reboots and firmware upgrades;
 `post-config.d/90-plc-mux.sh` re-runs the data plane and relaunches the daemon on
 every boot.
@@ -117,9 +133,19 @@ no rule change, no session drop — safe to use as a heartbeat.
   *only*. Remove any other addresses.
 - **`eth1`-`eth4` in a switch/bridge** — all four PLCs share one wire and the
   duplicate IPs collide. Pull them out into independent routed ports.
+- **One PLC dead, its table empty / port missing `192.168.1.1/32`** — that port still
+  has an EdgeOS-assigned address. Most often it's `eth1`, which ships as the factory
+  WAN (`address dhcp`): EdgeOS's DHCP client owns the interface and flushes the host
+  address the script adds, taking the table's route with it. `delete interfaces
+  ethernet ethN address` (and any `firewall`) in `configure`, commit, then re-run
+  `mux-setup.sh`. Confirm with `ip -br addr show ethN` and `ip route show table 10N`.
 - **Selector ignored, nothing in the log** — packets aren't reaching the daemon.
   `sudo tcpdump -ni eth0 udp port 5150` and check the destination. If a firewall
-  `LOCAL` policy is dropping them, allow `udp/5150`.
+  `LOCAL` policy is dropping them, allow `udp/5150`. (On EdgeOS, `sudo timeout` is
+  unavailable — bound a capture with tcpdump's `-c N`, not `timeout`.)
+- **Log says `ignored bad selector`** — the datagram arrives but the payload is out of
+  range. The daemon wants ASCII `1`-`4` or raw `0x01`-`0x04`. A common cause is an HMI
+  using 0-based indexing (sending `0` for the first PLC); make it send `1`-`4`.
 - **Switch works but HMI clings to the old PLC** — `conntrack` userspace tool
   missing, so old flows aren't torn down. `which conntrack`.
 - **Everything gone after reboot** — a file landed outside `/config`. All three

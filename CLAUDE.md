@@ -66,9 +66,25 @@ perl -MIO::Socket::INET -e '$s=IO::Socket::INET->new(PeerAddr=>"127.0.0.1:5150",
 ip rule show | grep 192.168.1.160   # expect lookup 101
 ```
 
+To see what the HMI actually sends, capture on the router with `sudo tcpdump -ni eth0
+udp port 5150 -c 4` — note EdgeOS has **no `timeout` under sudo**, so bound the capture
+with `-c N`, never `sudo timeout`.
+
 ## Known gotchas (already hit during commissioning)
 
 - An earlier design assigned `.160` to `eth0` — broke forwarding (see invariant 1).
+- A factory EdgeRouter X ships `eth1` as the WAN port: `address dhcp` plus the
+  `WAN_IN`/`WAN_LOCAL` firewall. Left in place, EdgeOS's dhclient owns `eth1` and
+  flushes the `192.168.1.1/32` that `mux-setup.sh` adds, so table 100 ends up empty
+  and PLC #1 (the default selection) silently black-holes. `delete` eth1's `address`
+  and `firewall` in the EdgeOS config. `eth2`-`eth4` are bare by default, so only
+  eth1 is affected — the bug looks like "only PLC #1 is broken."
+- The HMI must send a **1-based** selector (`1`-`4`). A commissioned IDEC HMI was seen
+  sending ASCII `0` (0-based, `0x30`) for PLC #1 → `ignored bad selector`. The daemon
+  is 1-based by contract (`1`-`4` / `0x01`-`0x04`); fix the HMI, not the daemon.
+- The deployed copy under `/config/user-data/plc-mux/` can lag the repo (it was once
+  a pre-no-op-guard daemon while the repo had the guarded version). Re-run
+  `install.sh` after editing so the box never drifts from `src/`.
 - The HMI sends by **broadcast** (`192.168.1.255:5150`), which is why the daemon
   binds `0.0.0.0` with `Broadcast => 1` rather than the specific `.254`.
 - Binding `0.0.0.0` can source the ACK from the "wrong" interface on a multi-homed

@@ -21,11 +21,15 @@ cat <<'EOM'
 
 Files installed.
 
-One-time EdgeOS config for the HMI-side port (do NOT address eth1-eth4):
+One-time EdgeOS config (address eth0; do NOT address eth1-eth4). On a factory
+EdgeRouter X, eth1 ships as WAN (dhcp + WAN firewall) and MUST be cleared, or its
+host address keeps getting wiped and PLC #1 silently dies:
 
     configure
     set interfaces ethernet eth0 address 192.168.1.254/24
     set interfaces ethernet eth0 ip enable-proxy-arp
+    delete interfaces ethernet eth1 address     # drop factory WAN dhcp
+    delete interfaces ethernet eth1 firewall    # drop WAN_IN / WAN_LOCAL
     commit ; save ; exit
 
 Bring it up now (no reboot needed):
