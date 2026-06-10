@@ -41,6 +41,9 @@ on. The router therefore:
   into its own subnet, and **flushes conntrack** to `.160` on each switch so the
   HMI's session re-establishes against the newly selected unit.
 
+> Running OpenWrt on the ER-X instead of stock EdgeOS? See [`openwrt/`](openwrt/) for a
+> port that runs the same mux on OpenWrt (procd service, busybox-sh setup, opkg deps).
+
 ## Requirements
 
 - Ubiquiti EdgeRouter X on EdgeOS (v1.10+ or v2.x; `post-config.d` support).
