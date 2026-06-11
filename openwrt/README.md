@@ -32,6 +32,9 @@ you have no serial adapter, porting the mux is the zero-risk path to a working u
 - **Logs:** daemon output goes to the system log — `logread -e plc-mux` (not a file).
 - **Firewall/DHCP:** OpenWrt's `firewall`, `dnsmasq`, `odhcpd` are disabled — this is a
   dedicated L3 appliance; fw3's zones would block forwarding and the unzoned mgmt port.
+- **Promiscuous mode** is set on `eth0`+`eth1`-`eth4`: the DSA switch drops frames whose
+  destination MAC isn't the port's own, so a device holding a stale ARP for `.160` (the
+  real PLC's MAC) would have its frames silently dropped. Not needed on EdgeOS.
 
 ## Files
 
