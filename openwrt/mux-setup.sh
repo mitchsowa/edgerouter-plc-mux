@@ -17,9 +17,17 @@ BASE_TABLE=100                # PLC #1 = table 100, #2 = 101, ...
 
 ipf() { echo "$1" > "/proc/sys/net/ipv4/conf/$2/$3" 2>/dev/null; }
 
+# Promiscuous mode (OpenWrt-only): the ER-X's DSA switch drops frames whose
+# destination MAC isn't the port's own. A device can still hold a stale ARP for
+# .160 (the real PLC's MAC from before the mux was inserted) and send to that MAC;
+# promisc lets the router receive and forward those frames instead of the switch
+# silently dropping them. Harmless on a dedicated appliance.
+promisc() { ip link set "$1" promisc on 2>/dev/null; }
+
 # ---- HMI side ------------------------------------------------------------
 ip addr add "$HMI_ADDR" dev "$HMI_IF" 2>/dev/null
 ip link set "$HMI_IF" up
+promisc "$HMI_IF"
 # Answer ARP for .160 on the HMI segment so the HMI believes the router IS the
 # PLC. The router never owns .160 itself, so traffic is forwarded, not delivered.
 ipf 1 "$HMI_IF" proxy_arp
@@ -33,6 +41,7 @@ for IF in $PLC_IFS; do
     # /32 so no competing 192.168.1.0/24 connected route lands in the main table.
     ip addr add "${SNAT_IP}/32" dev "$IF" 2>/dev/null
     ip link set "$IF" up
+    promisc "$IF"
     ipf 0 "$IF" rp_filter            # off: forward path is asymmetric by design
     ipf 1 "$IF" forwarding
     # The only route to the shared .160 in this table is out this one port.
